@@ -1,2 +1,0 @@
-# ManagerHelp
-FiverTestingHelp
