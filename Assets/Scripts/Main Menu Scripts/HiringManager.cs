@@ -1,93 +1,140 @@
 using UnityEngine;
 using UnityEngine.UI;
 using System.Collections.Generic;
+using TMPro;
+using System.Collections;
+using JetBrains.Annotations;
 
 public class HiringManager : MonoBehaviour
 {
-    public Transform[] hireSlots;
-    public Button rerollButton;
-
-    private List<CrewMember> availableCrewMembers = new List<CrewMember>();
+    public TextMeshProUGUI FailText;
+    [Space]
+    public List<CrewMember> AvailableCrewMembers;
+    [Space]
+    public HireSlot[] HireSlots;
+    [Header("Reroll Options")]
+    public int RerollCost = 100;
+    public Button RerollButton;
+    [Header("Panels Options")]
+    public Button ShowPartyMembersBtn;
+    public GameObject PartyMembersPanel;
+    public GameObject HiringPanel;
 
     private void Start()
     {
-        InitializeCrewMembers();
-        rerollButton.onClick.AddListener(RerollCrewMembers);
-        RerollCrewMembers();
-    }
-
-    private void InitializeCrewMembers()
-    {
-        availableCrewMembers.Add(new CrewMember("John", "Cards: Attack", 100, Resources.Load<Sprite>("CharacterArt/PORTRAITS TONED JPGs/Mothership Chars 07")));
-        availableCrewMembers.Add(new CrewMember("Jane", "Cards: Defense", 120, Resources.Load<Sprite>("CharacterArt/PORTRAITS TONED JPGs/Mothership Chars 08")));
-        availableCrewMembers.Add(new CrewMember("Doe", "Cards: Heal", 150, Resources.Load<Sprite>("CharacterArt/PORTRAITS TONED JPGs/Mothership Chars 09")));
-        // Add more crew members as needed
-    }
-
-    private void RerollCrewMembers()
-    {
-        for (int i = 0; i < hireSlots.Length; i++)
+        // Give errors if the memebres list is not populated in inspector
+        if(AvailableCrewMembers == null)
         {
-            int randomIndex = Random.Range(0, availableCrewMembers.Count);
-            CrewMember crewMember = availableCrewMembers[randomIndex];
-            UpdateHireSlot(hireSlots[i], crewMember);
-        }
-    }
-
-    private void UpdateHireSlot(Transform slot, CrewMember crewMember)
-    {
-        Text nameText = slot.Find("NameText")?.GetComponent<Text>();
-        Text cardInfoText = slot.Find("CardInfoText")?.GetComponent<Text>();
-        Text costText = slot.Find("CostText")?.GetComponent<Text>();
-        Image image = slot.Find("CrewImage")?.GetComponent<Image>();
-        Button hireButton = slot.Find("HireButton")?.GetComponent<Button>();
-
-        if (nameText == null)
-        {
-            Debug.LogError("NameText not found in slot: " + slot.name);
-        }
-        if (cardInfoText == null)
-        {
-            Debug.LogError("CardInfoText not found in slot: " + slot.name);
-        }
-        if (costText == null)
-        {
-            Debug.LogError("CostText not found in slot: " + slot.name);
-        }
-        if (image == null)
-        {
-            Debug.LogError("CrewImage not found in slot: " + slot.name);
-        }
-        if (hireButton == null)
-        {
-            Debug.LogError("HireButton not found in slot: " + slot.name);
-        }
-
-        if (nameText == null || cardInfoText == null || costText == null || image == null || hireButton == null)
-        {
-            Debug.LogError("One or more UI components are missing in the slot: " + slot.name);
+            Debug.LogError("Please add some crew members in hiring manager inpector before playing!");
             return;
         }
 
-        nameText.text = crewMember.name;
-        cardInfoText.text = crewMember.cardInfo;
-        costText.text = "Cost: " + crewMember.cost;
-        image.sprite = crewMember.image;
+        if(AvailableCrewMembers.Count == 0)
+        {
+            Debug.LogError("Please add some crew members in hiring manager inpector before playing!");
+            return;
+        }
+        RerollCrewMembers(false);
 
-        hireButton.onClick.RemoveAllListeners();
-        hireButton.onClick.AddListener(() => HireCrewMember(crewMember));
+        RerollButton.onClick.AddListener(delegate { RerollCrewMembers(); });
+        FailText.text = string.Empty;
+
+        HiringPanel.SetActive(true);
+        PartyMembersPanel.SetActive(false);
+        ShowPartyMembersBtn.onClick.RemoveAllListeners();
+        ShowPartyMembersBtn.onClick.AddListener(delegate
+        {
+            PartyMembersPanel.SetActive(true);
+            HiringPanel.SetActive(false);
+        });
     }
 
-    private void HireCrewMember(CrewMember crewMember)
+    private void RerollCrewMembers(bool deductCost = true)
     {
-        if (PartyManager.Instance.CanHireMore())
+        if(deductCost && PlayerProfile.Gold < RerollCost)
         {
-            PartyManager.Instance.AddCrewMember(crewMember);
-            Debug.Log(crewMember.name + " hired!");
+            ShowFailText("NOT ENOUGH GOLD!");
+            return;
         }
-        else
+
+        if(deductCost)
+            PlayerProfile.Gold -= RerollCost;
+
+        List<int> selectedRandoms = new List<int>();
+
+        for(int i = 0; i < HireSlots.Length; i++)
         {
-            Debug.Log("Cannot hire more crew members.");
+            int randomIndex = Random.Range(0, AvailableCrewMembers.Count);
+            while(selectedRandoms.Contains(randomIndex))
+                randomIndex = Random.Range(0, AvailableCrewMembers.Count);
+
+            selectedRandoms.Add(randomIndex);
+
+            CrewMember crewMember = AvailableCrewMembers[randomIndex];
+
+            UpdateHireSlot(HireSlots[i], crewMember);
         }
     }
+
+    private void UpdateHireSlot(HireSlot slot, CrewMember crewMember)
+    {
+        slot.NameText.text = crewMember.name;
+        slot.CardInfoText.text = crewMember.cardInfo;
+        slot.CostText.text = crewMember.cost.ToString();
+        slot.CardImage.sprite = crewMember.image;
+
+        slot.HireButton.onClick.RemoveAllListeners();
+        slot.HireButton.onClick.AddListener(delegate
+        {
+            bool hiredSuccess = HireCrewMember(crewMember);
+            if(hiredSuccess) slot.HireButton.interactable = false;
+        });
+        slot.HireButton.interactable = true;
+    }
+
+    private bool HireCrewMember(CrewMember crewMember)
+    {
+        if(PartyManager.Instance.CanHireMore() == false)
+        {
+            ShowFailText("ALREADY HIRED " + PartyManager.Instance.MaxPartySize + " PARTY MEMBERS!");
+            return false;
+        }
+
+        if(crewMember.cost > PlayerProfile.Gold)
+        {
+            ShowFailText("NOT ENOUGH GOLD!");
+            return false;
+        }
+
+        // Deduct cost
+        PlayerProfile.Gold -= crewMember.cost;
+
+        // add to hired party members
+        PartyManager.Instance.AddCrewMember(crewMember);
+        Debug.Log(crewMember.name + " hired!");
+
+        return true;
+    }
+
+
+
+    #region FAIL TEXT SHOWING
+
+    Coroutine failTextCo;
+    private void ShowFailText(string val)
+    {
+        if(failTextCo != null)
+            StopCoroutine(failTextCo);
+
+        failTextCo = StartCoroutine(ShowFailTextCo(val));
+    }
+
+    IEnumerator ShowFailTextCo(string val)
+    {
+        FailText.text = val;
+        yield return new WaitForSecondsRealtime(1f);
+        FailText.text = string.Empty;
+    }
+
+    #endregion
 }
